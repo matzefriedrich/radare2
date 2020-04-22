@@ -783,6 +783,7 @@ R_API void r_cons_image(const ut8 *buf, int bufsz, int width, int mode);
 R_API RConsCanvas* r_cons_canvas_new(int w, int h);
 R_API void r_cons_canvas_free(RConsCanvas *c);
 R_API void r_cons_canvas_clear(RConsCanvas *c);
+R_API void r_cons_canvas_nextword(RConsCanvas *c, const char *word);
 R_API void r_cons_canvas_print(RConsCanvas *c);
 R_API void r_cons_canvas_print_region(RConsCanvas *c);
 R_API char *r_cons_canvas_to_string(RConsCanvas *c);

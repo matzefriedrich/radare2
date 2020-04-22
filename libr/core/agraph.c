@@ -3234,7 +3234,7 @@ static void agraph_toggle_mini(RAGraph *g) {
 	agraph_set_layout ((RAGraph *) g);
 }
 
-static void agraph_follow_innodes (RAGraph *g, bool in) {
+static void agraph_follow_innodes(RAGraph *g, bool in) {
 	int count = 0;
 	RListIter *iter;
 	RANode *an = get_anode (g->curnode);
@@ -3333,6 +3333,8 @@ static void agraph_update_title(RCore *core, RAGraph *g, RAnalFunction *fcn) {
 		"%s[0x%08"PFMT64x "]> %s # %s ",
 		graphCursor? "(cursor)": "",
 		fcn->addr, a? a->title: "", sig);
+	// debugging purposes
+	new_title = r_str_appendf (new_title, " (%d,%d)", g->can->sx, g->can->sy);
 	r_agraph_set_title (g, new_title);
 	free (new_title);
 	free (sig);
@@ -3551,6 +3553,12 @@ static int agraph_refresh(struct agraph_refresh_data *grd) {
 	if (r_config_get_i (core->config, "scr.scrollbar")) {
 		r_core_print_scrollbar (core);
 	}
+
+#if 0
+	r_cons_gotoxy (2,2);
+	r_cons_printf ("((%d %d)) (( %d %d ))", g->can->sx, g->can->sy, g->can->w, g->can->h);
+	r_cons_flush ();
+#endif
 
 	return res;
 }
@@ -4046,6 +4054,103 @@ static bool toggle_bb(RCore *core, ut64 addr) {
 	return false;
 }
 
+typedef struct r_canvas_location {
+	int x;
+	int y;
+} RPosition;
+
+static const char *strstr_xy(const char *p, const char *s, int *x, int *y) {
+	const char *d = strstr (p, s);
+	if (!d) {
+		return NULL;
+	}
+	const char *q;
+	int nl = 0;
+	int nc = 0;
+	for (q = p; q < d; q++) {
+		if (*q == '\n') {
+			nl++;
+			nc = 0;
+		} else {
+			nc++;
+		}
+	}
+	*x = nc;
+	*y = nl;
+	return d;
+}
+
+static char *old_word = NULL;
+static RList *word_list = NULL;
+static int word_nth = 0;
+
+static void nextword(RCore *core, RConsCanvas *can, const char *word) {
+	RListIter *iter;
+	if (word_list && !strcmp (word, old_word)) {
+		RPosition *pos = r_list_get_n (word_list, word_nth);
+		if (pos) {
+			word_nth++;
+		} else {
+			word_nth = 0;
+			pos = r_list_get_n (word_list, word_nth);
+		}
+		if (pos) {
+			can->sx = pos->x - (can->w) + 120;
+			can->sy = -pos->y;
+		}
+		return;
+	} else {
+		r_list_free (word_list);
+		word_list = r_list_newf (free);
+	}
+	if (!*word) {
+		return;
+	}
+	char *s = r_core_cmd_strf (core, "agf");
+	r_cons_reset ();
+	int x, y;
+	char *p = s;
+	r_cons_clear00();
+	r_cons_flush();
+	int ox = 0;
+	int oy = 0;
+	size_t count = 0;
+	const size_t MAX_COUNT = 4096;
+	while (true) {
+		const char *a = strstr_xy (p, word, &x, &y);
+		if (!a) {
+			break;
+		}
+		RPosition *pos = R_NEW0 (RPosition);
+		if (!pos) {
+			break;
+		}
+		pos->x = x - 1500 ;
+		pos->y = y + oy;
+		r_list_append (word_list, pos);
+		p = a + 1;
+		oy += y;
+		ox = x;
+		count++;
+		if (count > MAX_COUNT) {
+			break;
+		}
+	}
+	free (old_word);
+	old_word = strdup (word);
+	return nextword (core, can, word);
+#if 0
+	RPosition *pos;
+	free (s);
+	r_list_foreach (word_list, iter, pos) {
+		r_cons_printf ("> %d %d\n", pos->x, pos->y);
+	//	can->sx = can->x + pos->x;//movspeed * (invscroll? -1: 1);
+	//	can->sy = can->y + pos->y;//movspeed * (invscroll? -1: 1);
+		break;
+	}
+#endif
+}
+
 R_API int r_core_visual_graph(RCore *core, RAGraph *g, RAnalFunction *_fcn, int is_interactive) {
 	int o_asmqjmps_letter = core->is_asmqjmps_letter;
 	int o_scrinteractive = r_cons_is_interactive ();
@@ -4241,6 +4346,9 @@ R_API int r_core_visual_graph(RCore *core, RAGraph *g, RAnalFunction *_fcn, int 
 				g->need_update_dim = true;
 				get_bbupdate (g, core, fcn);
 			}
+			break;
+		case '\\':
+			nextword (core, can, r_config_get (core->config, "scr.highlight"));
 			break;
 		case 'b':
 			r_core_visual_browse (core, "");

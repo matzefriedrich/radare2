@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2013-2019 - pancake */
+/* radare - LGPL - Copyright 2013-2020 - pancake */
 
 #include <r_cons.h>
 #include <r_util/r_assert.h>
@@ -218,6 +218,93 @@ R_API bool r_cons_canvas_gotoxy(RConsCanvas *c, int x, int y) {
 	return ret;
 }
 
+static char *canvas_string(RConsCanvas *c, size_t pos) {
+	int x, y;
+	char *s = calloc (c->w, c->h);
+	if (!s) {
+		return NULL;
+	}
+	char *p = s;
+	int ox = c->x; //> 0? 0: -c->sx;
+	int oy = c->y;//> 0? 0: -c->sy;
+	for (y = oy; y < c->h; y ++) {
+		for (x = y==oy?ox:0; x < c->w; x ++) {
+			char ch = c->b[y][x];
+			const char *rune = r_cons_get_rune ((const ut8)ch);
+			if (rune) {
+				size_t rune_len = strlen (rune);
+				memcpy (p, rune, rune_len + 1);
+				p += rune_len;
+			} else {
+				*p = c->b[y][x];
+			}
+#if 0
+			if (ch) {
+				if (pos > 0) {
+					pos--;
+					continue;
+				}
+				*p++ = ch;
+			}
+#endif
+		}
+	}
+eprintf ("(%s)\n", s);
+sleep (3);
+	return s;
+}
+
+static int count_newlines(char *s, size_t len, size_t *col) {
+	size_t nl = 0;
+	size_t nc = 0;
+	size_t i;
+	for (i = 0; i < len; i++) {
+		if (s[i] == '\n') {
+			nl++;
+			nc = 0;
+		} else {
+			nc ++;
+		}
+	}
+	if (col) {
+		*col = nc;
+	}
+	return nl;
+}
+
+R_API void r_cons_canvas_nextword(RConsCanvas *c, const char *word) {
+	int pos = 0;
+	// char *s = r_cons_canvas_to_string (c);
+	char *s = canvas_string (c, 0);
+	if (!s) {
+		return;
+	}
+	char *p = s;
+	int y = 0;
+	while (*p) {
+		if (*p == '\n') {
+			y++;
+			if (y == -c->sy) {
+				break;
+			}
+			break;
+		}
+		p++;
+	}
+	char *d = strstr (p, word);
+// r_file_dump ("/tmp/a.txt", s, strlen (s), false);
+	if (d) {
+		*d = 0;
+		size_t delta = d - s;
+		size_t newpos = pos + delta;
+		int new_x = 0;
+		int new_y = c->sy - count_newlines (s, strlen (s), &new_x);
+		c->sx -= (new_x - c->x);
+		c->sy = new_y + 3;
+	}
+	free (s);
+}
+
 R_API RConsCanvas *r_cons_canvas_new(int w, int h) {
 	if (w < 1 || h < 1) {
 		return NULL;
@@ -265,7 +352,7 @@ R_API RConsCanvas *r_cons_canvas_new(int w, int h) {
 	c->attr = Color_RESET;
 	r_cons_canvas_clear (c);
 	return c;
-beach: {
+beach:
 	r_str_constpool_fini (&c->constpool);
 	int j;
 	for (j = 0; j < i; j++) {
@@ -276,7 +363,6 @@ beach: {
 	free (c->b);
 	free (c);
 	return NULL;
-       }
 }
 
 R_API void r_cons_canvas_write(RConsCanvas *c, const char *s) {
@@ -323,13 +409,13 @@ R_API void r_cons_canvas_write(RConsCanvas *c, const char *s) {
 
 		attr_len = slen <= 0 && s_part != s? 1: utf8_len;
 		if (attr_len > 0 && attr_x < c->blen[c->y]) {
-			__stampAttribute (c, c->y*c->w + attr_x, attr_len);
+			__stampAttribute (c, c->y * c->w + attr_x, attr_len);
 		}
 
 		s = s_part;
 		if (ch == '\n') {
 			c->attr = Color_RESET;
-			__stampAttribute (c, c->y*c->w + attr_x, 0);
+			__stampAttribute (c, c->y * c->w + attr_x, 0);
 			c->y++;
 			s++;
 			if (*s == '\0' || c->y  >= c->h) {
@@ -351,7 +437,7 @@ R_API char *r_cons_canvas_to_string(RConsCanvas *c) {
 	r_return_val_if_fail (c, NULL);
 
 	int x, y, olen = 0, attr_x = 0;
-	int is_first = true;
+	bool is_first = true;
 
 	for (y = 0; y < c->h; y++) {
 		olen += c->blen[y] + 1;
@@ -376,7 +462,7 @@ R_API char *r_cons_canvas_to_string(RConsCanvas *c) {
 			if ((c->b[y][x] & 0xc0) != 0x80) {
 				const char *atr = __attributeAt (c, y * c->w + attr_x);
 				if (atr) {
-					int len = strlen (atr);
+					size_t len = strlen (atr);
 					memcpy (o + olen, atr, len);
 					olen += len;
 				}
@@ -391,8 +477,9 @@ R_API char *r_cons_canvas_to_string(RConsCanvas *c) {
 			}
 			const char *rune = r_cons_get_rune ((const ut8)c->b[y][x]);
 			if (rune) {
-				strcpy (o + olen, rune);
-				olen += strlen (rune);
+				size_t rune_len = strlen (rune);
+				memcpy (o + olen, rune, rune_len + 1);
+				olen += rune_len;
 			} else {
 				o[olen++] = c->b[y][x];
 			}
@@ -452,12 +539,12 @@ R_API int r_cons_canvas_resize(RConsCanvas *c, int w, int h) {
 		if (i < c->h) {
 			newline = realloc (c->b[i], sizeof *c->b[i] * (w + 1));
 		} else {
-			newline = malloc ((w + 1));
+			newline = malloc (w + 1);
 		}
 		c->blen[i] = w;
 		c->bsize[i] = w + 1;
 		if (!newline) {
-			int j;
+			size_t j;
 			for (j = 0; j <= i; j++) {
 				free (c->b[i]);
 			}
