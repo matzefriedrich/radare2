@@ -3,6 +3,9 @@
 #ifndef R2_IO_H
 #define R2_IO_H
 
+#define _GNU_SOURCE 1
+#define _LARGEFILE64_SOURCE 1
+
 #include "r_list.h"
 #include <r_util.h>
 #include "r_socket.h"
